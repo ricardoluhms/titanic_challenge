@@ -209,6 +209,7 @@ df_train_normalized = (
     ( df_train[v_columns].max() - df_train[v_columns].min() ) )
 
 y_unbatched = df_train["Survived"].values
+
 df_train_normalized.dtypes
 df_train_normalized= df_train_normalized.astype(float)
 
@@ -232,83 +233,101 @@ def batch_split(array,batch_size = 892, type = "input"):
         if len(array.shape) == 1:
             row = array.shape[0]
             array = array.reshape(row,1)
+            array2 = array.copy()
+            mask = array == 0
+            array2[mask] = 1
+            array2[~mask] = 0
+            array_out = np.hstack([array,array2])
+
         if type == "input":
             batch_tensor = torch.tensor( array[fr:to]).float().requires_grad_(True) #.cpu()           
         else:
-            batch_tensor = torch.tensor( array[fr:to] ).float().requires_grad_(True) #.cpu()      
+            batch_tensor = torch.tensor( array_out[fr:to] ).float().requires_grad_(True) #.cpu()      
+
         batched.append(batch_tensor)
     return batched
-
+# 892
 x_batches = batch_split(array , type = "input")
 y_batches = batch_split(y_unbatched , type = "output")
 
-class MyNet(nn.Module):
-    def __init__(self, min_neuron_per_layer = 10):
-        super(MyNet, self).__init__()
-        features_input = 6
-        output_labels = 1 #"Survived or not"
-        output_features = min_neuron_per_layer
-        self.fc_layer1 = nn.Linear(features_input,output_features)
-        self.fc_layer2 = nn.Linear(output_features,output_features*2)
-        self.fc_layer3 = nn.Linear(output_features*2,output_features*2)
-        self.fc_layer4= nn.Linear(output_features*2,output_labels)
-        self.dropout1 = nn.Dropout(0.15)
+def train(x_batches, y_batches, features_input = 6, features_output = 2, min_neuron_per_layer = 50, epochs = 8000, lr=2e-4):
+    output_feat = min_neuron_per_layer
 
-    def forward(self,x):
-
-        x = self.fc_layer1(x)
-        x = F.relu(x)
-        x = self.fc_layer2(x)
-        x = F.relu(x)
-        x = self.fc_layer3(x)
-        x = F.relu(x)
-        x = self.dropout1(x)
-        x = self.fc_layer4(x)
-        output = F.log_softmax(x, dim=1)
-        return output
-
-def train(x_batches, y_batches, epochs =100, learning_rate = 1e-3):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = MyNet(min_neuron_per_layer=2).to(device)
-    #print("#"*15, "Network Structure", "#"*15); print(model)
-    criterion = torch.nn.MSELoss(reduction='sum')#.to(device)
-    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate, momentum=0.8)
-    loss_overall_data = []
+    model = torch.nn.Sequential(
+                        nn.Linear(features_input,output_feat),
+                        nn.ReLU(),
+                        nn.Linear(output_feat,output_feat*2),
+                        nn.ReLU(),
+                        nn.Linear(output_feat*2,output_feat*2),
+                        nn.ReLU(),
+                        nn.Linear(output_feat*2,features_output),
+                        ).to(device)
+
+    criterion = torch.nn.MSELoss(reduction='mean')#.to(device)
+    criterion2 = torch.nn.MSELoss(reduction='sum')#.to(device)
+    optimizer = torch.optim.SGD(model.parameters(), lr=2e-6, momentum=0.8)
     
-    if len(x_batches) == len(y_batches):
-        for epoch in range(epochs):
-            for i, x in enumerate(x_batches):
-                y = y_batches[i].to(device)
-                x = x.to(device)
-                y_pred = model.forward(x)
-                # Calculating the model loss
-                #from IPython import embed; embed()
-                loss = criterion(y_pred, y)
-                # setting gradient to zeros
-                #from IPython import embed; embed()
-                #optimizer.param_groups
-                #optimizer.zero_grad()
-                #from IPython import embed; embed()
-                # update the gradient to new gradients
-                loss.backward()
-                optimizer.step()
 
-                if (i % 300 == 0):
-                    print("")
-                    print("Epoch {} - loss: {}".format(epoch, loss.item()))
-                    #print(list(optimizer.param_groups)[0])
-    else:
-        print("Input batches 'x' are different from the ouput 'y' ")
-    return model,loss_overall_data
+    for epoch in range(epochs):
+        for i, x in enumerate(x_batches):
+            y = y_batches[i].to(device)
+            x = x.to(device)
+            y_pred = model.forward(x)
+            y_pred2 = F.softmax(y_pred,dim=1)
+            test = (y_pred2 - y).sum()
+            loss = criterion(y_pred, y)
+            tt_error = criterion2(y_pred, y)
+            loss.backward()
+            optimizer.step()
+        if epoch % 100 == 0: 
+            print("#"*100)
+            print("Epoch {} - loss: {} - prediction error: {}  test: {}".format(epoch, loss.item(), tt_error.item(), test))
+            print("")
+    #from IPython import embed; embed()
+    return model.cpu()
+
+trained_model = train(x_batches, y_batches, features_input = 6, min_neuron_per_layer = 50, epochs = 8000, lr=2e-4)
+x = x_batches[0]
+y_pred = trained_model.forward(x).detach().clone().cpu().numpy() 
+path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/saved_models"
+file = "4fc_50n_8000_epochs.pth" ### pytorch file
+file_path = path + "/" + file
+torch.save(trained_model.state_dict(), file_path)
+# - x reprent 6 features from each passenger of the ship - it is the input for the neural network
+# - y_pred = the output array
+#    explaining the variable y_pred and the functions within it from left to right:
+#     - trained_model.forward(x) get the "x" tensor (pytorch format) which has 892 passengers x 6features
+#     - return the tensor output which has 892 passengers x 2features 
+#           (first column feature is the probability of the passenger being alive, second column feature is the probability of the passenger is dead)
+#     - to remove the learning features from it we apply detach()
+#     - then we clone the output (same as copy in numpy)
+#     - to be able to use the tensor we pass it to the cpu
+#     - lastly we convert it to numpy   
+survival_status = (y_pred[:,0] > y_pred[:,1]) * 1
+# if the probability value of the first column is higher than the second columns it means that the passenger survived.
+# the boolean matrix is multiplied by 1 to convert true and false to 1 and 0.
+df_train["Survived_Prediction"] = survival_status
+mask = df_train["Survived"] == df_train["Survived_Prediction"]
+prediction_ok = df_train[mask] 
+overall_TP = prediction_ok[prediction_ok["Survived"] == 1 ] ### Model predicted that the person would survive and got it right
+overall_TN = prediction_ok[prediction_ok["Survived"] == 0 ] ### Model predicted that the person would not survive and got it right
+
+prediction_nok = df_train[~mask]
+overall_FP = prediction_nok[prediction_nok["Survived_Prediction"] == 1 ] ### Model predicted incorrectly that the person would survive and got it wrong
+overall_FN = prediction_nok[prediction_nok["Survived_Prediction"] == 0 ] ### Model predicted incorrectly that the person not would survive and got it wrong
 
 
+precision = len(overall_TP)/(len(overall_TP)+len(overall_FP))
+recall = len(overall_TP)/(len(overall_TP)+len(overall_FN))
+accuracy = len(prediction_ok) / len(df_train)
+print("")
+print( "Accuracy: {} - Precision: {} - Recall: {}".format( accuracy, precision, recall))
 
-model,loss_overall_data = train(x_batches, y_batches)
+### where the model failed?
+### is there any pattern?
+
+female_FN = overall_FN[overall_FN["Sex"]==1]
 
 
-
-
-
-
-
-# %%
+from IPython import embed ; embed()
