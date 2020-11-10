@@ -25,9 +25,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.functional import embedding
 
-# Model Helpers
+# Model Helpers and Metrics
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import roc_curve, auc, confusion_matrix
+
+# Models
 from sklearn import linear_model
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import Perceptron
+from sklearn.linear_model import SGDClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC, LinearSVC
+from sklearn.naive_bayes import GaussianNB
 
 
 # ### Create specific functions to prepare data
@@ -465,13 +476,37 @@ def features_to_feed(df, valid_columns= ["Family_size","Fare","Cabin_Code_Value"
     print(" ## * Array type: ", type(array))
     print(" ## * Rows: ", array.shape[0], " Features: ", array.shape[1])
     print( "\n ## Split values into batches if necessary" )
-    x_batches = batch_split(array, batch_size = 892, type = "input")
+    x_batches = batch_split(array, batch_size = len(df), type = "input")
     if "Survived" in df.columns:
         y_unbatched = df["Survived"].values
-        y_batches = batch_split(y_unbatched, batch_size = 892, type = "output")
+        y_batches = batch_split(y_unbatched, batch_size = len(df_normalized), type = "output")
         return x_batches, y_batches
     else:
         return x_batches, None
+
+def split_n_shuffle(df_train,df_test,csv_test_surv):
+    df_test_surv = pd.read_csv(csv_test_surv)
+    df_test = df_test.merge(df_test_surv, left_on='PassengerId', right_on='PassengerId')
+
+    shuffle_ids = np.arange(df_test["PassengerId"].min(),df_test["PassengerId"].max()+1,1)
+    np.random.shuffle(shuffle_ids)
+    train_ids = len(df_train)
+    test_ids = len(df_test)
+    tt_ids = train_ids + test_ids
+
+    thresh = len(shuffle_ids)//2
+    test_split = shuffle_ids[0:thresh]
+    valid_split = shuffle_ids[thresh+1:len(shuffle_ids)]
+
+    df_test = df_test.set_index("PassengerId", drop=False)
+    df_test_splitted = df_test.loc[test_split]
+    df_val_splitted = df_test.loc[valid_split]
+
+    print("\n","#"*20, " Shuffle Test and split {}'%' Test and {}'%' Validation  start".format( thresh / tt_ids,
+                                                                                                ( len(shuffle_ids) - thresh ) / tt_ids),
+                                                                                                "#"*20
+                                                                                            )
+    return df_test_splitted, df_val_splitted
 
 class NN_4layered():
 
@@ -530,8 +565,7 @@ class NN_4layered():
         torch.save(self.model.state_dict(), file_path)
         print("\n ## Model Saved")
 
-    def eval_train(self,x_input,df,by_column = False, column = "Sex"):
-        eval_info = {}
+    def eval_model(self,x_input,df,by_column = False, column = "Sex", model_name = "NN4L_rev0", stage = "Train"):
         x = None
         if type(x_input) == list:
             if len(x_input)==1 and torch.is_tensor(x_input[0]):
@@ -543,7 +577,7 @@ class NN_4layered():
                         x = xi    
                     else:
                         x = torch.cat([x, xi])
-        #from IPython import embed; embed()
+
         y_pred = self.model.forward(x).detach().clone().cpu().numpy() 
         exp = np.exp(y_pred)
         sf_maxS = exp[:,0] / exp.sum(axis=1)
@@ -562,15 +596,49 @@ class NN_4layered():
         overall_FP = prediction_nok[prediction_nok["Survived_Prediction"] == 1 ] ### Model predicted incorrectly that the person would survive and got it wrong
         overall_FN = prediction_nok[prediction_nok["Survived_Prediction"] == 0 ] ### Model predicted incorrectly that the person not would survive and got it wrong
 
+        check_tpr = len(overall_TP) + len(overall_FN)
+        if check_tpr == 0:
+            check_tpr = (overall_TP+0.00001) * 100000
 
-        precision = len(overall_TP)/(len(overall_TP)+len(overall_FP))
-        recall = len(overall_TP)/(len(overall_TP)+len(overall_FN))
-        accuracy = len(prediction_ok) / len(df_train)
-        d = {"precision":precision, "recall":recall, "accuracy":accuracy }
-        eval_info["overall"] = d
+        check_tnr = len(overall_TN) + len(overall_FP)
+        if check_tnr == 0:
+            check_tnr = (overall_TN+0.00001) * 100000
 
+        check_ppv = len(overall_TP) + len(overall_FP)
+        if check_ppv == 0:
+            check_ppv = (overall_TP+0.00001) * 100000
+
+        #tn, fp, fn, tp = confusion_matrix(self.Y_train, y_pred).ravel()
+        tpr = len(overall_TP) / ( check_tpr ) ## sensitivity, recall, hit rate, or true positive rate (TPR)
+        tnr = len(overall_TN) /( check_tnr ) ## specificity, selectivity or true negative rate (TNR)
+        ppv = len(overall_TP) /( check_ppv ) ## precision or positive predictive value (PPV)
+        acc = ( len(overall_TP) + len(overall_TN) ) / ( len(overall_TN) + 
+                                                        len(overall_TP) + 
+                                                        len(overall_FP) + 
+                                                        len(overall_FN)  ) ## accuracy (ACC)
+
+        f1_score = ( 2*len(overall_TP) ) / ( 2*len(overall_TP) + 
+                                               len(overall_FP) + 
+                                               len(overall_FN) )# F1 score
+
+        results_columns = ["stage", "model_name",
+                           "True Positive (TP)",
+                           "True Negative (TN)",
+                           "False Positive (FP)",
+                           "False Negative (FN)",   
+                            "recall-sensitivity","specificity", "precision-ppv","accuracy","F1_score"]
+                            
+        model_data = [  stage,
+                        model_name + "_overall", 
+                        len(overall_TP), 
+                        len(overall_TN),
+                        len(overall_FP), 
+                        len(overall_FN), 
+                        tpr, tnr, ppv, acc, f1_score]
+
+        df_result = pd.DataFrame( [model_data] , columns= results_columns)
         print("")
-        print( "Model Overall Accuracy: {} - Precision: {} - Recall: {}".format( accuracy, precision, recall))
+        print( "Model Overall Accuracy: {} - Precision: {} - Recall: {}".format( acc, ppv, tpr))
         if by_column:
 
             columns_values = df[column].drop_duplicates().to_list()
@@ -578,52 +646,221 @@ class NN_4layered():
                 v_FN = overall_FN[overall_FN[column]==value]
                 v_FP = overall_FP[overall_FP[column]==value]
                 v_TP = overall_TP[overall_TP[column]==value]
-                V_TN = overall_TN[overall_TN[column]==value]
+                v_TN = overall_TN[overall_TN[column]==value]
 
-                #from IPython import embed; embed()
-                precision = len(v_TP)/(len(v_TP)+len(v_FP))
-                recall = len(v_TP)/(len(v_TP)+len(v_FN))
-                accuracy = len(V_TN + v_TP) / len(v_FN + v_FP + v_TP + V_TN)
-                d = {"precision":precision, "recall":recall, "accuracy":accuracy }
-                eval_info[value] = d
+                tpr = len(v_TP) / ( len(v_TP) + len(v_FN) ) ## sensitivity, recall, hit rate, or true positive rate (TPR)
+                tnr = len(v_TN) /( len(v_TN) + len(v_FP) ) ## specificity, selectivity or true negative rate (TNR)
+                ppv = len(v_TP) /( len(v_TP) + len(v_FP) ) ## precision or positive predictive value (PPV)
+                acc = ( len(v_TP) + len(v_TN) ) / ( len(v_TN) + 
+                                                    len(v_TP) + 
+                                                    len(v_FP) + 
+                                                    len(v_FN)  ) ## accuracy (ACC)
+
+                f1_score = ( 2*len(v_TP) ) / ( 2*len(v_TP) + 
+                                                len(v_FP) + 
+                                                len(v_FN) )# F1 score
+
+                model_data = [ model_name + "col_" + str(column), 
+                                len(v_TP), 
+                                len(v_TN),
+                                len(v_FP), 
+                                len(v_FN), 
+                                tpr, tnr, ppv, acc, f1_score]
 
                 print("#"*20, "Model Performance by column {} and cvalue {}:".format(column,value))
-                print( "## * Accuracy: {} Precision: {} - Recall: {}".format( accuracy, precision, recall))
+                print( "## * Accuracy: {} Precision: {} - Recall: {}".format( acc, ppv, tpr))
+                df_result2 = pd.DataFrame( [model_data] , columns= results_columns)
+                df_result = df_result.append(df_result2)
 
-        return eval_info
+        return df_result
 
 class Models_Comp():
     def __init__(self,df,valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"]):
-        pass
+
+        ### Adapted from https://www.kaggle.com/ricardoluhms/titanic-81-1-leader-board-score-guaranteed/edit?rvi=1
+        
+        self.valid_columns = valid_columns
         df_normalized = (
         ( df[valid_columns] - df[valid_columns].min() )/
         ( df[valid_columns].max() - df[valid_columns].min() ) )
 
-        print( "\n ## Select columns to feed the Neural Network" )
+        print( "\n ## Selected columns to feed the Neural Network: ", valid_columns )
 
         df_normalized= df_normalized.astype(float)
-
+        self.df = df
         array = df_normalized.values
         self.X_train = StandardScaler().fit_transform(array)
         self.Y_train = df['Survived'].values
 
-    def sgd_classifier(self):
-        sgd = linear_model.SGDClassifier(max_iter=5, tol=None)
-        sgd.fit(self.X_train, self.Y_train)
-        #Y_pred = sgd.predict(self.X_test)
-        sgd.score(self.X_train, self.Y_train)
-        acc_sgd = round(sgd.score(self.X_train, self.Y_train) * 100, 2)
-        print(acc_sgd)
+    def sgd_classifier_model(self):
+        self.sgd = linear_model.SGDClassifier(max_iter=25, tol=None)
+        self.sgd.fit(self.X_train, self.Y_train)
+        #Y_pred = self.sgd.predict(self.X_test)
+        self.sgd.score(self.X_train, self.Y_train)
+        self.acc_sgd = round(self.sgd.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## Stochastic Gradient Descent Classifier Accuracy: ", self.acc_sgd)
+        
+    def random_forest_model(self):    
+        self.random_forest = RandomForestClassifier(n_estimators=125)
+        self.random_forest.fit(self.X_train, self.Y_train)
+        #Y_prediction = random_forest.predict(X_test)
+        self.random_forest.score(self.X_train, self.Y_train)
+        self.acc_random_forest = round(self.random_forest.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## Random Forest Classifier Accuracy: ", self.acc_random_forest)
+    
+    def logistic_regression_model(self):
+        self.logreg = LogisticRegression()
+        self.logreg.fit(self.X_train, self.Y_train)
+        #Y_pred = logreg.predict(X_test)
+        self.acc_log = round(self.logreg.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## Logistic Regrassion Classifier Accuracy: ", self.acc_log)
+    
+    def k_nearest_neighbor_model(self):
+        self.knn = KNeighborsClassifier(n_neighbors = 3) 
+        self.knn.fit(self.X_train, self.Y_train)  
+        #Y_pred = knn.predict(X_test)  
+        self.acc_knn = round(self.knn.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## K Nearest Neighbor Classifier Accuracy: ", self.acc_knn)
 
+    def gaussian_naive_bayes_model(self):
+        self.gaussian = GaussianNB() 
+        self.gaussian.fit(self.X_train, self.Y_train)  
+        #Y_pred = gaussian.predict(X_test)  
+        self.acc_gaussian = round(self.gaussian.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## Gaussian Naive Bayes Classifier Accuracy: ", self.acc_gaussian)
+
+    def perceptron_model(self):
+        self.perceptron = Perceptron(max_iter=200)
+        self.perceptron.fit(self.X_train, self.Y_train)
+        #Y_pred = perceptron.predict(X_test)
+        self.acc_perceptron = round(self.perceptron.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## Perceptron Classifier Accuracy: ", self.acc_perceptron)
+
+    def lin_svc_model(self):
+        self.linear_svc = LinearSVC()
+        self.linear_svc.fit(self.X_train, self.Y_train)
+        #Y_pred = linear_svc.predict(X_test)
+        self.acc_linear_svc = round(self.linear_svc.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## Linear Support Vector Classifier Accuracy: ", self.acc_linear_svc)
+
+    def decision_tree_model(self):
+        self.decision_tree = DecisionTreeClassifier() 
+        self.decision_tree.fit(self.X_train, self.Y_train)  
+        #Y_pred = decision_tree.predict(X_test)  
+        self.acc_decision_tree = round(self.decision_tree.score(self.X_train, self.Y_train) * 100, 2)
+        print( "\n ## Decision Tree Classifier Accuracy: ", self.acc_decision_tree)
+    
+    def run_train_all(self):
+        self.sgd_classifier_model()
+        self.random_forest_model()
+        self.logistic_regression_model()
+        self.k_nearest_neighbor_model()
+        self.gaussian_naive_bayes_model()
+        self.perceptron_model()
+        self.lin_svc_model()
+        self.decision_tree_model()
+
+        results = pd.DataFrame({
+                'Model': ['Support Vector Machines', 'KNN', 'Logistic Regression', 
+                          'Random Forest', 'Gaussian Naive Bayes', 'Perceptron', 
+                          'Stochastic Gradient Decent', 
+                          'Decision Tree'],
+                'Score': [self.acc_linear_svc, self.acc_knn, self.acc_log, 
+                          self.acc_random_forest, self.acc_gaussian, self.acc_perceptron, 
+                          self.acc_sgd, self.acc_decision_tree]})
+
+        simple_result_df = results.sort_values(by='Score', ascending=False)
+        simple_result_df = simple_result_df.set_index('Score')
+        print("\n ## Dataframe Results")
+        return simple_result_df
+
+    def single_model_metrics(self, df_result = None, model_name = None, stage = "Train"):
+        current_model = None
+        #from IPython import embed; embed()  
+        if model_name not in self.models.keys() or model_name == None:
+            print("Selected model name is not in the model list")
+            print("Please check the available models: ", self.models.keys())
+        else:
+            current_model = self.models[model_name]
+
+        y_pred = current_model.predict(self.X_train)
+
+        tn, fp, fn, tp = confusion_matrix(self.Y_train, y_pred).ravel()
+
+        tpr = tp /(tp+fn) ## sensitivity, recall, hit rate, or true positive rate (TPR)
+        tnr = tn /(tn+fp) ## specificity, selectivity or true negative rate (TNR)
+        ppv = tp /(tp+fp) ## precision or positive predictive value (PPV)
+        acc = ( tp + tn ) / ( tn + tp + fp + fn) ## accuracy (ACC)
+        f1_score = ( 2*tp ) / ( 2*tp + fp + fn)# F1 score
+
+        model_data = [ stage , model_name, tp, tn, fp, fn, tpr, tnr, ppv, acc, f1_score]
+
+        results_columns = ["stage", "model_name",
+                           "True Positive (TP)",
+                           "True Negative (TN)",
+                           "False Positive (FP)",
+                           "False Negative (FN)",   
+                            "recall-sensitivity","specificity", "precision-ppv","accuracy","F1_score"]
+        #from IPython import embed; embed()               
+        try:
+            df_result2 = pd.DataFrame( [model_data] , columns= results_columns)
+            df_result = df_result.append(df_result2)
+
+        except:    
+            df_result = pd.DataFrame( [model_data] , columns= results_columns)
+        
+        return df_result
+
+    def all_model_metrics(self,df_result, stage = "Train"):
+
+        self.models = {'Support Vector Machines':self.linear_svc, 
+            'KNN':self.knn, 
+            'Logistic Regression': self.logreg, 
+            'Random Forest': self.random_forest, 
+            'Gaussian Naive Bayes': self.gaussian, 
+            'Perceptron':self.perceptron, 
+            'Stochastic Gradient Decent': self.sgd,
+            'Decision Tree': self.decision_tree}
+
+        for model_name in  self.models.keys():
+
+            df_result = self.single_model_metrics(df_result = df_result, model_name = model_name, stage = stage)
+        
+        return df_result
+    
+    def update_input(self,df):
+
+        df_normalized = (
+        ( df[self.valid_columns] - df[self.valid_columns].min() )/
+        ( df[self.valid_columns].max() - df[self.valid_columns].min() ) )
+
+        df_normalized= df_normalized.astype(float)
+        self.df = df
+        array = df_normalized.values
+        self.X_train = StandardScaler().fit_transform(array)
+        self.Y_train = df['Survived'].values
+
+    def update_n_eval_metrics(self, df ,df_result, stage):
+        self.update_input(df)
+        df_result = self.all_model_metrics(df_result, stage = stage )
+        return df_result
+    
 
 csv_test_path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/test.csv" 
 csv_train_path= "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/train.csv"
+csv_test_surv = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/gender_submission.csv"
 
 df_train, df_test = preprocessing(csv_test_path,csv_train_path, plot = False, save = True)
 
+df_test_splitted, df_val_splitted = split_n_shuffle (df_train,df_test, csv_test_surv = csv_test_surv)
+
 x_batches, y_batches = features_to_feed(df_train, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
 
-model_pack = NN_4layered(features_input = 4, features_output = 2, min_neuron_per_layer = 200, epochs = 12000, lr=2e-7)
+x_batches_test, y_batches_test = features_to_feed(df_test_splitted, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
+
+x_batches_val, y_batches_val = features_to_feed(df_val_splitted, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
+
+model_pack = NN_4layered(features_input = 4, features_output = 2, min_neuron_per_layer = 200, epochs = 10000, lr=2e-7)
 
 trained_model = model_pack.train(x_batches, y_batches)
 
@@ -633,17 +870,32 @@ file = "model_test.pth"
 model_pack.save(path = path,
                 file = file )
 
-model_performance = model_pack.eval_train (x_batches,df_train,by_column = True, column = "Sex")
+df_result = model_pack.eval_model(x_batches, df_train, by_column = False, column = "Sex")
+
+df_result_test = model_pack.eval_model(x_batches_test, df_test_splitted, by_column = False, column = "Sex")
+
+df_result_val = model_pack.eval_model(x_batches_val, df_val_splitted, y_column = False, column = "Sex")
+
+df_result = df_result.append(df_result_test)
+df_result = df_result.append(df_result_val)
+
+#############################################################################################
 
 other_models = Models_Comp(df_train, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
 
-other_models.sgd_classifier()
+simple_result_df = other_models.run_train_all()
+
+df_result = other_models.all_model_metrics(df_result)
+
+df_result = other_models.update_n_eval_metrics( df_test_splitted, df_result, stage = "Test")
+
+df_result = other_models.update_n_eval_metrics( df_result_val, df_result, stage = "Validation")
 
 # - x reprent 6 features from each passenger of the ship - it is the input for the neural network
 # - y_pred = the output array
 #    explaining the variable y_pred and the functions within it from left to right:
-#     - trained_model.forward(x) get the "x" tensor (pytorch format) which has 892 passengers x 6features
-#     - return the tensor output which has 892 passengers x 2features 
+#     - trained_model.forward(x) get the "x" tensor (pytorch format) which has 891 passengers x 6features
+#     - return the tensor output which has 891 passengers x 2features 
 #           (first column feature is the probability of the passenger being alive, second column feature is the probability of the passenger is dead)
 #     - to remove the learning features from it we apply detach()
 #     - then we clone the output (same as copy in numpy)
