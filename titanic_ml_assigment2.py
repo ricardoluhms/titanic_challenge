@@ -1,5 +1,3 @@
-
-# %%
 # ### Import Core Libraries
 
 # solve OMP: Error #15: Initializing libiomp5md.dll, but found libiomp5md.dll already initialized.
@@ -40,13 +38,12 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC, LinearSVC
 from sklearn.naive_bayes import GaussianNB
 
-
-# ### Create specific functions to prepare data
-
+# Returns a concatenated df of training and test set
 def concat_df(train_data, test_data):
-    # Returns a concatenated df of training and test set
+    
     return pd.concat([train_data, test_data], sort=True).reset_index(drop=True)
 
+# special correlation function that ranks the features 
 def correlation (df):
     print("")
     ### get the overall correlation of each columns
@@ -69,6 +66,7 @@ def correlation (df):
 
     ### normalized_average_correlation shows which columns attribute does is not correlated to other 
 
+# function to check object datatype and how many unique values it has  
 def check_object_var(df):
     obj_coulumns = df.dtypes[df.dtypes == object]
     feature_pack = {}
@@ -84,6 +82,7 @@ def check_object_var(df):
 
     return feature_pack
 
+# specific code to the titanic - assigment get the initial letter of the cabin
 def cabin_code (feature_pack,df):
     look_up = {}
     for obj in feature_pack["Cabin"]:
@@ -109,13 +108,13 @@ def cabin_code (feature_pack,df):
         mask2 = df2["id"] == simple_code
         
         simple_code_value = df2[mask2].index[0]
-        #from IPython import embed; embed()
         df.loc[mask, "Cabin_Code"] = simple_code
         df.loc[mask,"Cabin_Code_Value"] = simple_code_value
-        #from IPython import embed; embed()
+
 
     return look_up, df
 
+# specific code to the titanic - function to replace null age values by the median value considering each Pclass 
 def replace_na_age (df_train,df_test,by = ["Pclass"]):
     ### replacing age - train
     mask_age_is_na_t1 = df_train["Age"].isna()
@@ -158,6 +157,7 @@ def replace_na_age (df_train,df_test,by = ["Pclass"]):
 
     return df_train,df_test
 
+# specific code to the titanic - function to get the name title
 def get_name_title(df):
     
     names = df["Name"].to_list()
@@ -169,8 +169,8 @@ def get_name_title(df):
     df["Title_name"] = title_names
     
     return df
-# ### Load Test and Train Data
 
+#  specific code to the titanic - get the family size 
 def get_family_size(df):
     df["Family_size"] = df["SibSp"] + df["Parch"] + 1
     df["Average_Fare"] = df["Fare"]/df["Family_size"]
@@ -178,9 +178,9 @@ def get_family_size(df):
 
     return df
 
+#  function to merge two columns into one (MS excel concatenation)
 def group_types(df,typeA, typeB):
     typeC = str(typeA) + "-" + str(typeB) 
-    #from IPython import embed; embed()
     if df[typeA].dtype == pd.Categorical:
         df[typeA] = df[typeA].astype('string')
     if df[typeB].dtype == pd.Categorical:
@@ -189,6 +189,7 @@ def group_types(df,typeA, typeB):
     df[typeC] = df[typeA].map(str)+ "-" + df[typeB].map(str)
     return df
 
+#  function to merge multiple columns into one (MS excel concatenation)
 def group_multi(df,types = []):
 
     cat_columns = df.select_dtypes(['category']).columns
@@ -214,6 +215,7 @@ def group_multi(df,types = []):
                     added_types.append(types[num])
     return df
 
+#  function plot the correlation between variables
 def corr_plot(df):
 
     # link ---> https://likegeeks.com/seaborn-heatmap-tutorial/
@@ -222,28 +224,30 @@ def corr_plot(df):
     fig.set_size_inches(10,8)
     plt.show()
 
-def histogram_plot (df, x_axis_name, group_title =""):
-
+#  customized histogram plot
+def histogram_plot ( df, x_axis_name, y_axis_name = 'Survived', group_title =""):
 
     fig, axs = plt.subplots(figsize=(22, 9))
-    sns.countplot(x=x_axis_name, hue='Survived', data=df)
+    sns.countplot(x=x_axis_name, hue= y_axis_name, data=df)
 
     plt.xlabel(x_axis_name, size=15, labelpad=20)
-    plt.ylabel('Passenger Count', size=15, labelpad=20)
+    plt.ylabel(y_axis_name + 'Count', size=15, labelpad=20)
     plt.tick_params(axis='x', labelsize=15)
     plt.tick_params(axis='y', labelsize=15)
 
-    plt.legend(['Not Survived', 'Survived'], loc='upper right', prop={'size': 15})
-    if group_title == "":
-        plt.title('Survival Counts in {} Feature'.format(x_axis_name), size=15, y=1.05)
-    else:
-        plt.title('Survival Counts in {} group {} Feature'.format(group_title, x_axis_name), size=15, y=1.05)
+    y_values = df[y_axis_name].drop_duplicates().to_list()
 
+    plt.legend(y_values, loc='upper right', prop={'size': 15})
+    if group_title == "":
+        plt.title('{} Counts in {} Feature'.format(y_axis_name, x_axis_name), size=15, y=1.05)
+    else:
+        plt.title('{} Counts in {} group {} Feature'.format(y_axis_name, group_title, x_axis_name), size=15, y=1.05)
     plt.show()
 
-def relative_risk (df,x_axis_name):
+# relative risk calculates the average risk of a dataframe column feature y and generates a new dataframe with the output risks
+def relative_risk (df,x_axis_name, y_axis_name = "Survived"):
 
-    sur_filter =df["Survived"]== 1
+    sur_filter =df[y_axis_name]== 1
 
     df_surv = df[sur_filter]
     df_N_surv = df[~sur_filter]
@@ -266,21 +270,22 @@ def relative_risk (df,x_axis_name):
                             count_surv_tt, 
                             count_surv_cat/count_surv_tt])
     
-    df_output = pd.DataFrame(data_output, columns= ["cat_type", "cat", "survival_count", "death_count", "tt_count" , "survival_rate"])
+    df_output = pd.DataFrame(data_output, columns= ["cat_type", "cat", "risk_count", "not_risk_count", "tt_count" , "risk_rate"])
 
-    df_output = df_output.sort_values(by=['survival_rate']).reset_index(drop=True)
+    df_output = df_output.sort_values(by=['risk_rate']).reset_index(drop=True)
     
-    if df_output['survival_rate'].min() == 0:
+    if df_output['risk_rate'].min() == 0:
 
-        fzero = df_output['survival_rate'] == 0
+        fzero = df_output['risk_rate'] == 0
         df_output_nz = df_output[~fzero]
 
     else:
         df_output_nz = df_output
-    df_output["relative_risk"] = df_output['survival_rate'] / df_output_nz['survival_rate'].min() 
+    df_output["relative_risk"] = df_output['risk_rate'] / df_output_nz['risk_rate'].min() 
 
     return df_output
 
+# calculate the relative risk for all columns in a given dataframe
 def overall_relative_risk (df):
 
     columns = df.columns
@@ -298,21 +303,22 @@ def overall_relative_risk (df):
 
     return df_output
 
+# update the risk rate of a certain feature in the main dataframe
 def look_up_risk (df, df_risk, x_axis_name):
-    df['survival_rate'] = 0
+    df['risk_rate'] = 0
     cat_ls = df_risk["cat"].tolist()
 
     for cat in  cat_ls:
-        # from IPython import embed; embed()
         filt_risk = df_risk["cat"] == cat
-        risk_value = float(df_risk[filt_risk]["survival_rate"])
+        risk_value = float(df_risk[filt_risk]["risk_rate"])
 
         filt = df[x_axis_name] == cat
-        df.loc[df[filt].index,'survival_rate'] = risk_value
+        df.loc[df[filt].index,'risk_rate'] = risk_value
 
     return df
 
-### batch size = number of rows fed in the neural network
+# specific code for neural network - Pytorch, transform the dataset into batches
+# batch size = number of rows fed in the neural network
 def batch_split(array,batch_size = 892, type = "input"):
     batched = []
     batches = ( array.shape[0] // batch_size ) + 1
@@ -342,6 +348,7 @@ def batch_split(array,batch_size = 892, type = "input"):
         batched.append(batch_tensor)
     return batched
 
+#  specific code to the titanic - preprocessing data
 def preprocessing(csv_test_path,csv_train_path, plot = True, save = True):
 
     print("#"*20, " Preprocessing start", "#"*50)
@@ -393,8 +400,6 @@ def preprocessing(csv_test_path,csv_train_path, plot = True, save = True):
             histogram_plot(df_male_class,"Age_Group", group_title = "Male "+"pclass- "+str(pclass))
             histogram_plot(df_female_class,"Age_Group", group_title = "Female "+"pclass- "+str(pclass))
 
-
-
     print( "\n ## Replacing Embarked and Fare NaN " )
     ### replacing Embarked - train
     mask_e = df_train["Embarked"].isna()
@@ -425,7 +430,6 @@ def preprocessing(csv_test_path,csv_train_path, plot = True, save = True):
     df_test["Cabin"] = df_test["Cabin"].fillna("nan")
     _, df_train = cabin_code(feature_pack,df = df_train)
     _, df_test = cabin_code(feature_pack,df = df_test)
-
 
     print( "\n ## Concatenate Sex,Age_Group,Pclass to find a unique variable" )
     df_train = group_multi(df_train,types = ["Sex","Age_Group",'Pclass'])
@@ -459,11 +463,11 @@ def preprocessing(csv_test_path,csv_train_path, plot = True, save = True):
 
     return df_train, df_test
 
-def features_to_feed(df, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"]):
+#  specific code to the titanic - select which features and data will be fed into the AI models 
+def features_to_feed(df, valid_columns= ["Family_size","Fare","Cabin_Code_Value","risk_rate"]):
 
     print( "\n ## Select columns to feed the Neural Network and normalize the values" )
     # the survival rate of each combination of Sex-Age_Group-Pclass were calculated and they will be fed into the network
-    #from IPython import embed; embed()
     df_normalized = (
         ( df[valid_columns] - df[valid_columns].min() )/
         ( df[valid_columns].max() - df[valid_columns].min() ) )
@@ -484,6 +488,7 @@ def features_to_feed(df, valid_columns= ["Family_size","Fare","Cabin_Code_Value"
     else:
         return x_batches, None
 
+#  specific code to the titanic - split dataset 
 def split_n_shuffle(df_train,df_test,csv_test_surv):
     df_test_surv = pd.read_csv(csv_test_surv)
     df_test = df_test.merge(df_test_surv, left_on='PassengerId', right_on='PassengerId')
@@ -508,6 +513,7 @@ def split_n_shuffle(df_train,df_test,csv_test_surv):
                                                                                             )
     return df_test_splitted, df_val_splitted
 
+#  specific to Neural Networks
 class NN_4layered():
 
     def __init__(self, features_input = 6, features_output = 2, min_neuron_per_layer = 100, epochs = 8000, lr=2e-4):
@@ -592,7 +598,8 @@ class NN_4layered():
         overall_TP = prediction_ok[prediction_ok["Survived"] == 1 ] ### Model predicted that the person would survive and got it right
         overall_TN = prediction_ok[prediction_ok["Survived"] == 0 ] ### Model predicted that the person would not survive and got it right
 
-        prediction_nok = df_train[~mask]
+        
+        prediction_nok = df[~mask]
         overall_FP = prediction_nok[prediction_nok["Survived_Prediction"] == 1 ] ### Model predicted incorrectly that the person would survive and got it wrong
         overall_FN = prediction_nok[prediction_nok["Survived_Prediction"] == 0 ] ### Model predicted incorrectly that the person not would survive and got it wrong
 
@@ -674,8 +681,9 @@ class NN_4layered():
 
         return df_result
 
+#  several sklearn models into a single class for comparison purpose
 class Models_Comp():
-    def __init__(self,df,valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"]):
+    def __init__(self,df,valid_columns= ["Family_size","Fare","Cabin_Code_Value","risk_rate"]):
 
         ### Adapted from https://www.kaggle.com/ricardoluhms/titanic-81-1-leader-board-score-guaranteed/edit?rvi=1
         
@@ -776,7 +784,6 @@ class Models_Comp():
 
     def single_model_metrics(self, df_result = None, model_name = None, stage = "Train"):
         current_model = None
-        #from IPython import embed; embed()  
         if model_name not in self.models.keys() or model_name == None:
             print("Selected model name is not in the model list")
             print("Please check the available models: ", self.models.keys())
@@ -800,8 +807,7 @@ class Models_Comp():
                            "True Negative (TN)",
                            "False Positive (FP)",
                            "False Negative (FN)",   
-                            "recall-sensitivity","specificity", "precision-ppv","accuracy","F1_score"]
-        #from IPython import embed; embed()               
+                            "recall-sensitivity","specificity", "precision-ppv","accuracy","F1_score"]              
         try:
             df_result2 = pd.DataFrame( [model_data] , columns= results_columns)
             df_result = df_result.append(df_result2)
@@ -829,7 +835,6 @@ class Models_Comp():
         return df_result
     
     def update_input(self,df):
-
         df_normalized = (
         ( df[self.valid_columns] - df[self.valid_columns].min() )/
         ( df[self.valid_columns].max() - df[self.valid_columns].min() ) )
@@ -844,82 +849,115 @@ class Models_Comp():
         self.update_input(df)
         df_result = self.all_model_metrics(df_result, stage = stage )
         return df_result
+
+    def get_best_model (self, df, df_result, complete_csv_path,submission_csv_path):
+        
+        df_normalized = (
+        ( df[self.valid_columns] - df[self.valid_columns].min() )/
+        ( df[self.valid_columns].max() - df[self.valid_columns].min() ) )
+
+        df_normalized= df_normalized.astype(float)
+        array = df_normalized.values
+        self.X_test = StandardScaler().fit_transform(array)
+
+        # get the best model for this application
+        mask1 = df_result["stage"] == "Validation"
+        mask2 = df_result[mask1]["accuracy"] == df_result[mask1]["accuracy"].max()
+        candidates = df_result[mask1][mask2]
+
+        if len(candidates)>1:
+            mask3 = candidates["F1_score"] == candidates["F1_score"].max()
+            candidates = candidates[mask3]
+
+        best_model_ser = candidates.iloc[0]
+        model_name = best_model_ser["model_name"]
+
+        csv_all_results_path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/all_results.csv" 
+        df_result.to_csv(csv_all_results_path)
+        
+        Y_out = self.models[model_name].predict(self.X_test)
+        
+        df_output = pd.DataFrame( {"PassengerId": df["PassengerId"], "Survived":Y_out} )
+
+        csv_sub_path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/submission.csv" 
+        df_output.to_csv(csv_sub_path)
+
+# complete analysis
+if __name__ == "__main__":
+    csv_test_path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/test.csv" 
+    csv_train_path= "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/train.csv"
+    csv_test_surv = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/gender_submission.csv"
+
+    df_train, df_test = preprocessing(csv_test_path,csv_train_path, plot = False, save = True)
+
+    histogram_plot(df_train, x_axis_name = 'Sex-Age_Group-Pclass', y_axis_name = 'Survived', group_title ="")
+
+    histogram_plot(df_train, x_axis_name = 'Family_size', y_axis_name = 'Survived', group_title ="")
+
+    histogram_plot(df_train, x_axis_name = 'Cabin_Code_Value', y_axis_name = 'Survived', group_title ="")
+
+    corr_plot(df_train)
+
+    df_test_splitted, df_val_splitted = split_n_shuffle (df_train,df_test, csv_test_surv = csv_test_surv)
+
+    x_batches, y_batches = features_to_feed(df_train, valid_columns= ["Family_size","Fare","Cabin_Code_Value","risk_rate"])
+
+    x_batches_test, y_batches_test = features_to_feed(df_test_splitted, valid_columns= ["Family_size","Fare","Cabin_Code_Value","risk_rate"])
+
+    x_batches_val, y_batches_val = features_to_feed(df_val_splitted, valid_columns= ["Family_size","Fare","Cabin_Code_Value","risk_rate"])
+
+    model_pack = NN_4layered(features_input = 4, features_output = 2, min_neuron_per_layer = 200, epochs = 10000, lr=2e-7)
+
+    trained_model = model_pack.train(x_batches, y_batches)
+
+    path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/saved_models"
+    afile = "model_final.pth"
+
+    model_pack.save(path = path,
+                    file = afile )
+
+    df_result = model_pack.eval_model(x_batches, df_train, by_column = False, column = "Sex")
+
+    df_result_test = model_pack.eval_model(x_batches_test, df_test_splitted, by_column = False, column = "Sex")
+
+    df_result_val = model_pack.eval_model(x_batches_val, df_val_splitted, by_column = False, column = "Sex")
+
+    df_result = df_result.append(df_result_test)
+    df_result = df_result.append(df_result_val)
+
+    other_models = Models_Comp(df_train, valid_columns= ["Family_size","Fare","Cabin_Code_Value","risk_rate"])
+
+    simple_result_df = other_models.run_train_all()
+
+    df_result = other_models.all_model_metrics(df_result)
+
+    df_result = other_models.update_n_eval_metrics( df_test_splitted, df_result, stage = "Test")
+
+    df_result = other_models.update_n_eval_metrics( df_val_splitted, df_result, stage = "Validation")
     
+    csv_sub_path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/submission.csv" 
+    csv_all_results_path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/all_results.csv" 
 
-csv_test_path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/test.csv" 
-csv_train_path= "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/train.csv"
-csv_test_surv = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/gender_submission.csv"
+    other_models.get_best_model (df_test, df_result, csv_all_results_path,csv_sub_path)
 
-df_train, df_test = preprocessing(csv_test_path,csv_train_path, plot = False, save = True)
+    # - x reprent 6 features from each passenger of the ship - it is the input for the neural network
+    # - y_pred = the output array
+    #    explaining the variable y_pred and the functions within it from left to right:
+    #     - trained_model.forward(x) get the "x" tensor (pytorch format) which has 891 passengers x 6features
+    #     - return the tensor output which has 891 passengers x 2features 
+    #           (first column feature is the probability of the passenger being alive, second column feature is the probability of the passenger is dead)
+    #     - to remove the learning features from it we apply detach()
+    #     - then we clone the output (same as copy in numpy)
+    #     - to be able to use the tensor we pass it to the cpu
+    #     - lastly we convert it to numpy   
+    # 1.  first trial with 6 features did not performed well for women
+    # 1.1. v_columns= ["Pclass","Age","SibSp","Parch","Fare","Cabin_Code_Value"] 
+    # 1.2. hypothesis: since Cabin_Code_Value, Farem and Pclass are higly correlated their influence over the outcome are heavier than the other features
+    # 2. second trial with 4 features without any feature engineering
 
-df_test_splitted, df_val_splitted = split_n_shuffle (df_train,df_test, csv_test_surv = csv_test_surv)
-
-x_batches, y_batches = features_to_feed(df_train, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
-
-x_batches_test, y_batches_test = features_to_feed(df_test_splitted, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
-
-x_batches_val, y_batches_val = features_to_feed(df_val_splitted, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
-
-model_pack = NN_4layered(features_input = 4, features_output = 2, min_neuron_per_layer = 200, epochs = 10000, lr=2e-7)
-
-trained_model = model_pack.train(x_batches, y_batches)
-
-path = "C:/Users/ricar/Desktop/Schulich/MMAI AI intro/titanic/saved_models"
-file = "model_test.pth"
-
-model_pack.save(path = path,
-                file = file )
-
-df_result = model_pack.eval_model(x_batches, df_train, by_column = False, column = "Sex")
-
-df_result_test = model_pack.eval_model(x_batches_test, df_test_splitted, by_column = False, column = "Sex")
-
-df_result_val = model_pack.eval_model(x_batches_val, df_val_splitted, y_column = False, column = "Sex")
-
-df_result = df_result.append(df_result_test)
-df_result = df_result.append(df_result_val)
-
-#############################################################################################
-
-other_models = Models_Comp(df_train, valid_columns= ["Family_size","Fare","Cabin_Code_Value","survival_rate"])
-
-simple_result_df = other_models.run_train_all()
-
-df_result = other_models.all_model_metrics(df_result)
-
-df_result = other_models.update_n_eval_metrics( df_test_splitted, df_result, stage = "Test")
-
-df_result = other_models.update_n_eval_metrics( df_result_val, df_result, stage = "Validation")
-
-# - x reprent 6 features from each passenger of the ship - it is the input for the neural network
-# - y_pred = the output array
-#    explaining the variable y_pred and the functions within it from left to right:
-#     - trained_model.forward(x) get the "x" tensor (pytorch format) which has 891 passengers x 6features
-#     - return the tensor output which has 891 passengers x 2features 
-#           (first column feature is the probability of the passenger being alive, second column feature is the probability of the passenger is dead)
-#     - to remove the learning features from it we apply detach()
-#     - then we clone the output (same as copy in numpy)
-#     - to be able to use the tensor we pass it to the cpu
-#     - lastly we convert it to numpy   
-# 1.  first trial with 6 features did not performed well for women
-# 1.1. v_columns= ["Pclass","Age","SibSp","Parch","Fare","Cabin_Code_Value"] 
-# 1.2. hypothesis: since Cabin_Code_Value, Farem and Pclass are higly correlated their influence over the outcome are heavier than the other features
-# 2. second trial with 4 features without any feature engineering
-
-# 3. third trial feature engineering identified that sex, age_group and pclass play a major role in survivability
-# added feature engineering columns['PassengerId', 'Survived', 'Pclass', 'Name', 'Sex', 'Age', 'SibSp',
-#       'Parch', 'Ticket', 'Fare', 'Cabin', 'Embarked', 'Age_Group',
-#       'Title_name', 'Family_size', 'Average_Fare', 'Average_Fare_Group',
-#       'Cabin_Code', 'Cabin_Code_Value','Sex-Age_Group', 'Sex-Age_Group-Pclass', 'survival_rate']
-#### Check the training performance
-
-#a = torch.load(path+"/"+file)
-
-#model.load_state_dict(torch.load(file_path))
-#model.eval()
-
-
-
-from IPython import embed ; embed()
-
+    # 3. third trial feature engineering identified that sex, age_group and pclass play a major role in survivability
+    # added feature engineering columns['PassengerId', 'Survived', 'Pclass', 'Name', 'Sex', 'Age', 'SibSp',
+    #       'Parch', 'Ticket', 'Fare', 'Cabin', 'Embarked', 'Age_Group',
+    #       'Title_name', 'Family_size', 'Average_Fare', 'Average_Fare_Group',
+    #       'Cabin_Code', 'Cabin_Code_Value','Sex-Age_Group', 'Sex-Age_Group-Pclass', 'risk_rate']
 
